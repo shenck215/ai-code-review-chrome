@@ -301,8 +301,7 @@ export default function OptionsPage() {
               >
                 {Object.keys(MODEL_CONFIGS).map((id) => (
                   <option key={id} value={id}>
-                    {id.split("-")[0].toUpperCase()}{" "}
-                    {id.includes("flash") ? "⚡" : "🚀"}
+                    {MODEL_CONFIGS[id as ModelId].modelName}
                   </option>
                 ))}
               </select>
