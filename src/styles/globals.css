@@ -1,0 +1,314 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── 高端暗色极客主题 ── */
+@layer base {
+  :root {
+    --background: 240 10% 3.9%;
+    --foreground: 0 0% 98%;
+    --card: 240 10% 5.5%;
+    --card-foreground: 0 0% 98%;
+    --popover: 240 10% 3.9%;
+    --popover-foreground: 0 0% 98%;
+    --primary: 263.4 70% 58%;        /* 更亮的极客紫 */
+    --primary-foreground: 210 20% 98%;
+    --secondary: 240 3.7% 15.9%;
+    --secondary-foreground: 0 0% 98%;
+    --muted: 240 3.7% 12%;
+    --muted-foreground: 240 5% 58%;
+    --accent: 240 3.7% 15.9%;
+    --accent-foreground: 0 0% 98%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 240 3.7% 14%;
+    --input: 240 3.7% 12%;
+    --ring: 263.4 70% 58%;
+    --radius: 0.75rem;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+    outline-color: hsl(var(--ring) / 0.5);
+  }
+
+  html, body {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font-feature-settings: "cv02", "cv05", "cv11", "ss01";
+    -webkit-font-smoothing: antialiased;
+    letter-spacing: -0.01em;
+    /* 微噪点背景纹理 */
+    background-image:
+      radial-gradient(ellipse 80% 50% at 50% -20%, hsl(263.4 70% 58% / 0.12) 0%, transparent 70%),
+      url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
+  }
+}
+
+@layer components {
+  /* ── 玻璃拟态卡片 ── */
+  .glass-panel {
+    background: hsl(var(--card) / 0.7);
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    border: 1px solid hsl(0 0% 100% / 0.07);
+    box-shadow:
+      0 0 0 0.5px hsl(0 0% 0% / 0.5),
+      0 8px 32px hsl(0 0% 0% / 0.35),
+      inset 0 1px 0 hsl(0 0% 100% / 0.05);
+  }
+
+  /* ── 渐变按钮 ── */
+  .btn-gradient {
+    background: linear-gradient(135deg, hsl(263.4 70% 58%), hsl(280 65% 50%));
+    position: relative;
+    overflow: hidden;
+    transition: all 0.25s ease;
+    box-shadow:
+      0 4px 20px hsl(263.4 70% 58% / 0.35),
+      inset 0 1px 0 hsl(0 0% 100% / 0.2);
+  }
+
+  .btn-gradient:hover {
+    filter: brightness(1.15);
+    box-shadow:
+      0 6px 28px hsl(263.4 70% 58% / 0.5),
+      inset 0 1px 0 hsl(0 0% 100% / 0.25);
+    transform: translateY(-1px);
+  }
+
+  .btn-gradient:active {
+    transform: scale(0.97) translateY(0);
+  }
+
+  .btn-gradient::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(180deg, hsl(0 0% 100% / 0.15) 0%, transparent 60%);
+    pointer-events: none;
+  }
+
+  .btn-gradient::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: hsl(0 0% 100% / 0.1);
+    opacity: 0;
+    transition: opacity 0.25s;
+  }
+
+  .btn-gradient:hover::after {
+    opacity: 1;
+  }
+
+  /* ── 极客输入框 ── */
+  .input-field {
+    background: hsl(var(--muted) / 0.6);
+    border: 1px solid hsl(var(--border) / 0.6);
+    border-radius: 0.625rem;
+    padding: 0 0.75rem;
+    font-size: 0.875rem;
+    color: hsl(var(--foreground));
+    transition: all 0.2s ease;
+    box-shadow: inset 0 1px 2px hsl(0 0% 0% / 0.2);
+  }
+
+  .input-field:focus {
+    outline: none;
+    border-color: hsl(var(--primary) / 0.6);
+    box-shadow:
+      inset 0 1px 2px hsl(0 0% 0% / 0.2),
+      0 0 0 3px hsl(var(--primary) / 0.12);
+    background: hsl(var(--muted) / 0.8);
+  }
+
+  .input-field::placeholder {
+    color: hsl(var(--muted-foreground) / 0.4);
+  }
+
+  /* ── 标签分隔线 ── */
+  .section-divider {
+    height: 1px;
+    background: linear-gradient(90deg, transparent, hsl(var(--border) / 0.8), transparent);
+  }
+}
+
+/* ── Markdown 渲染优化 ── */
+.markdown-body {
+  font-size: 13.5px;
+  line-height: 1.75;
+  color: hsl(var(--foreground) / 0.88);
+}
+
+.markdown-body h1 { font-size: 1.35rem; font-weight: 700; margin-top: 1.75rem; margin-bottom: 0.875rem; letter-spacing: -0.03em; color: white; }
+.markdown-body h2 {
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin-top: 1.75rem;
+  margin-bottom: 0.75rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid hsl(var(--border) / 0.5);
+  color: white;
+}
+.markdown-body h3 { font-size: 0.95rem; font-weight: 600; margin-top: 1.25rem; margin-bottom: 0.5rem; color: hsl(var(--foreground) / 0.9); }
+
+.markdown-body p { margin-bottom: 0.875rem; }
+
+.markdown-body blockquote {
+  border-left: 3px solid hsl(var(--primary) / 0.5);
+  background: hsl(var(--primary) / 0.06);
+  padding: 0.625rem 1rem;
+  margin: 1rem 0;
+  border-radius: 0 0.5rem 0.5rem 0;
+  font-style: italic;
+  color: hsl(var(--muted-foreground));
+}
+
+.markdown-body code:not(pre code) {
+  background: hsl(var(--primary) / 0.12);
+  color: hsl(263.4 85% 75%);
+  padding: 0.1em 0.4em;
+  border-radius: 0.3rem;
+  font-size: 0.82em;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  border: 1px solid hsl(var(--primary) / 0.2);
+}
+
+.markdown-body pre {
+  background: #0a0d14;
+  border: 1px solid hsl(var(--border) / 0.5);
+  border-radius: 0.75rem;
+  padding: 1rem;
+  margin: 1rem 0;
+  overflow-x: auto;
+  box-shadow: 0 4px 24px hsl(0 0% 0% / 0.3), inset 0 1px 0 hsl(0 0% 100% / 0.03);
+}
+
+.markdown-body ul, .markdown-body ol { margin: 0.75rem 0; padding-left: 1.25rem; }
+.markdown-body li { margin-bottom: 0.375rem; list-style-type: disc; }
+.markdown-body li::marker { color: hsl(var(--primary) / 0.6); }
+
+.markdown-body hr { margin: 1.75rem 0; border-color: hsl(var(--border) / 0.3); }
+
+.markdown-body strong { color: hsl(var(--foreground)); font-weight: 600; }
+
+.markdown-body table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1rem 0;
+  font-size: 0.85em;
+}
+.markdown-body th {
+  background: hsl(var(--muted) / 0.8);
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+  font-weight: 600;
+  color: hsl(var(--foreground) / 0.9);
+  border: 1px solid hsl(var(--border) / 0.5);
+}
+.markdown-body td {
+  padding: 0.5rem 0.75rem;
+  border: 1px solid hsl(var(--border) / 0.3);
+  color: hsl(var(--foreground) / 0.8);
+}
+.markdown-body tr:nth-child(even) td {
+  background: hsl(var(--muted) / 0.3);
+}
+
+/* ── 流式光标 ── */
+.streaming-cursor::after {
+  content: "";
+  display: inline-block;
+  width: 2px;
+  height: 1.1em;
+  background: hsl(var(--primary));
+  animation: blink 0.9s ease-in-out infinite;
+  vertical-align: middle;
+  margin-left: 3px;
+  border-radius: 1px;
+}
+
+/* ── 自定义滚动条 ── */
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--primary) / 0.25);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--primary) / 0.45);
+}
+
+/* ── 动画 ── */
+@keyframes float {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-4px); }
+}
+
+@keyframes glow {
+  0%, 100% { box-shadow: 0 0 12px hsl(263.4 70% 58% / 0.15), 0 4px 20px hsl(263.4 70% 58% / 0.25); }
+  50% { box-shadow: 0 0 24px hsl(263.4 70% 58% / 0.35), 0 4px 28px hsl(263.4 70% 58% / 0.4); }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% center; }
+  100% { background-position: 200% center; }
+}
+
+@keyframes scale-in {
+  from { opacity: 0; transform: scale(0.92); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+.animate-float {
+  animation: float 3.5s ease-in-out infinite;
+}
+
+.animate-glow {
+  animation: glow 3s ease-in-out infinite;
+}
+
+.animate-fade-in {
+  animation: fade-in 0.4s ease-out both;
+}
+
+.animate-scale-in {
+  animation: scale-in 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+/* ── 光泽文字 ── */
+.text-shimmer {
+  background: linear-gradient(
+    90deg,
+    hsl(var(--foreground) / 0.7) 0%,
+    hsl(var(--foreground)) 40%,
+    hsl(var(--foreground) / 0.7) 100%
+  );
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  animation: shimmer 4s linear infinite;
+}
+
+/* ── 徽章发光 ── */
+.badge-glow {
+  box-shadow: 0 0 8px hsl(var(--primary) / 0.4);
+}
