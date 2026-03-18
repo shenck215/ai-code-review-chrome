@@ -102,7 +102,8 @@ async function handleReviewRequest(
     const llm = new LLMClient(
       request.modelId,
       request.geminiApiKey,
-      request.claudeApiKey
+      request.claudeApiKey,
+      request.openaiApiKey
     )
 
     await llm.review(
@@ -140,4 +141,3 @@ async function handleReviewRequest(
     })
   }
 }
-

@@ -1,6 +1,6 @@
 /**
  * llm.ts - 大语言模型客户端集成
- * 
+ *
  * 核心职责：
  * 1. 统一封装 Gemini 和 Claude 的流式接口。
  * 2. 处理 Unicode 编码异常（针对 Claude API 的稳定性修复）。
@@ -9,6 +9,7 @@
 
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import Anthropic from "@anthropic-ai/sdk";
+import OpenAI from "openai";
 import type { DiffChunk, DiffPayload, ModelId } from "~types";
 import { MODEL_CONFIGS } from "~types";
 import { DiffBuffer } from "./diff-engine";
@@ -18,7 +19,7 @@ export type ProgressCallback = (msg: string) => void;
 
 /**
  * 确保字符串符合 Unicode 规范，移除无效的代理项（Unpaired Surrogates）。
- * 
+ *
  * 为什么需要：
  * Claude API (Anthropic SDK) 在处理包含孤立代理项字符的字符串时，
  * 其内部 JSON.stringify 会产生无效 JSON，导致 API 返回 400 错误。
@@ -147,21 +148,62 @@ async function streamClaude(
 }
 
 /**
+ * OpenAI 流式客户端封装
+ * 使用官方 openai SDK 的 Responses API
+ */
+async function streamOpenAI(
+  apiKey: string,
+  modelId: string,
+  prompt: string,
+  onDelta: StreamCallback,
+): Promise<string> {
+  const cfg = MODEL_CONFIGS[modelId as ModelId];
+  const client = new OpenAI({
+    apiKey,
+    dangerouslyAllowBrowser: true,
+  });
+
+  const stream = await client.responses.create({
+    model: modelId,
+    instructions: SYSTEM_PROMPT,
+    input: prompt,
+    max_output_tokens: cfg.maxOutputTokens,
+    stream: true,
+    reasoning: {
+      effort: "medium",
+    },
+  });
+
+  let full = "";
+  for await (const event of stream) {
+    if (event.type === "response.output_text.delta") {
+      onDelta(event.delta);
+      full += event.delta;
+    }
+  }
+
+  return full;
+}
+
+/**
  * 统一流式调用入口：根据模型 ID 选择对应的 Provider
  */
 async function streamReview(
   modelId: ModelId,
   geminiApiKey: string,
   claudeApiKey: string,
+  openaiApiKey: string,
   prompt: string,
   onDelta: StreamCallback,
 ): Promise<string> {
   const cfg = MODEL_CONFIGS[modelId];
   if (cfg.provider === "gemini") {
     return streamGemini(geminiApiKey, modelId, prompt, onDelta);
-  } else {
+  }
+  if (cfg.provider === "claude") {
     return streamClaude(claudeApiKey, modelId, prompt, onDelta);
   }
+  return streamOpenAI(openaiApiKey, modelId, prompt, onDelta);
 }
 
 /**
@@ -172,18 +214,25 @@ export class LLMClient {
   private modelId: ModelId;
   private geminiApiKey: string;
   private claudeApiKey: string;
+  private openaiApiKey: string;
   private buffer: DiffBuffer;
 
-  constructor(modelId: ModelId, geminiApiKey: string, claudeApiKey: string) {
+  constructor(
+    modelId: ModelId,
+    geminiApiKey: string,
+    claudeApiKey: string,
+    openaiApiKey: string,
+  ) {
     this.modelId = modelId;
     this.geminiApiKey = geminiApiKey;
     this.claudeApiKey = claudeApiKey;
+    this.openaiApiKey = openaiApiKey;
     this.buffer = new DiffBuffer(modelId); // 初始化分片管理器
   }
 
   /**
    * 执行审查的核心流程
-   * 
+   *
    * @param payload 包含整个 Diff 的荷载
    * @param onDelta 流式文本回调，用于实时更新 UI
    * @param onProgress 进度消息回调，告知用户当前阶段
@@ -200,11 +249,12 @@ export class LLMClient {
       const prompt =
         `请审查以下代码变更（${payload.baseCommit.slice(0, 7)} → ${payload.headCommit.slice(0, 7)}）：\n\n` +
         formatDiffForPrompt(payload);
-      
+
       await streamReview(
         this.modelId,
         this.geminiApiKey,
         this.claudeApiKey,
+        this.openaiApiKey,
         prompt,
         onDelta,
       );
@@ -234,6 +284,7 @@ export class LLMClient {
         this.modelId,
         this.geminiApiKey,
         this.claudeApiKey,
+        this.openaiApiKey,
         prompt,
         onDelta,
       );
@@ -255,9 +306,9 @@ export class LLMClient {
       this.modelId,
       this.geminiApiKey,
       this.claudeApiKey,
+      this.openaiApiKey,
       finalPrompt,
       onDelta,
     );
   }
 }
-

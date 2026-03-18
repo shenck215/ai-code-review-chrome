@@ -12,6 +12,7 @@ const DEFAULT_CONFIG: AppConfig = {
   gitlabBaseUrl: "https://gitlab.com",
   geminiApiKey: "",
   claudeApiKey: "",
+  openaiApiKey: "",
   defaultModel: "gemini-3.1-flash-lite-preview",
   defaultPlatform: "github",
   defaultProject: "",
@@ -32,16 +33,15 @@ export class SecurityManager {
     // 监听存储变化，自动同步缓存
     storage.watch({
       [CONFIG_KEY]: (c) => {
-        this.cache = c.newValue as AppConfig;
+        this.cache = { ...DEFAULT_CONFIG, ...((c.newValue as AppConfig) ?? {}) };
       },
     });
   }
 
   /** 读取完整配置 */
   async getConfig(): Promise<AppConfig> {
-    if (this.cache) return this.cache;
     const stored = await storage.get<AppConfig>(CONFIG_KEY);
-    this.cache = { ...DEFAULT_CONFIG, ...(stored ?? {}) };
+    this.cache = { ...DEFAULT_CONFIG, ...(stored ?? this.cache ?? {}) };
     return this.cache;
   }
 
@@ -49,8 +49,8 @@ export class SecurityManager {
   async updateConfig(patch: PartialAppConfig): Promise<void> {
     const current = await this.getConfig();
     const updated = { ...current, ...patch };
+    this.cache = updated;
     await storage.set(CONFIG_KEY, updated);
-    // 注意：此处不再手动设置 this.cache，由 watch 监听器负责更新
   }
 
   /** 读取单个配置项 */
@@ -82,8 +82,8 @@ export class SecurityManager {
     if (platform === "gitlab" && !config.gitlabToken) {
       missing.push("GitLab Token");
     }
-    if (!config.geminiApiKey && !config.claudeApiKey) {
-      missing.push("Gemini 或 Claude API Key（至少一个）");
+    if (!config.geminiApiKey && !config.claudeApiKey && !config.openaiApiKey) {
+      missing.push("Gemini / Claude / OpenAI API Key（至少一个）");
     }
 
     return { valid: missing.length === 0, missing };
@@ -92,7 +92,7 @@ export class SecurityManager {
   /** 检测 API Key 格式（简单启发式前缀验证） */
   static validateKeyFormat(
     key: string,
-    type: "gemini" | "claude" | "github" | "gitlab",
+    type: "gemini" | "claude" | "openai" | "github" | "gitlab",
   ): boolean {
     if (!key || key.trim().length === 0) return false;
     switch (type) {
@@ -100,6 +100,8 @@ export class SecurityManager {
         return key.startsWith("AIza") && key.length > 30;
       case "claude":
         return key.startsWith("sk-ant-") && key.length > 40;
+      case "openai":
+        return key.startsWith("sk-") && key.length > 20;
       case "github":
         return (
           key.startsWith("ghp_") ||
@@ -107,7 +109,7 @@ export class SecurityManager {
           key.length > 20
         );
       case "gitlab":
-        return key.startsWith("glpat-") || key.length > 20;
+        return key.length > 10;
       default:
         return key.length > 0;
     }

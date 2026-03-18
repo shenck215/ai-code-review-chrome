@@ -156,8 +156,10 @@ export class DiffEngine {
     this.validateCommitHash(headCommit)
 
     if (this.config.platform === "github") {
+      await this.validateGitHubProject()
       return this.fetchGitHubDiff(baseCommit, headCommit)
     } else {
+      await this.validateGitLabProject()
       return this.fetchGitLabDiff(baseCommit, headCommit)
     }
   }
@@ -169,6 +171,75 @@ export class DiffEngine {
     }
   }
 
+  private getGitHubRepoParts(): { owner: string; repo: string } {
+    const [owner, repo] = this.config.projectId.split("/")
+    if (!owner || !repo) {
+      throw new Error('GitHub 项目格式应为 "owner/repo"')
+    }
+    return { owner, repo }
+  }
+
+  private getGitLabBaseUrl(): string {
+    return (this.config.gitlabBaseUrl ?? "https://gitlab.com").replace(/\/$/, "")
+  }
+
+  private async validateGitHubProject(): Promise<void> {
+    const octokit = new Octokit({
+      auth: this.config.token,
+      request: { fetch: globalThis.fetch }
+    })
+    const { owner, repo } = this.getGitHubRepoParts()
+
+    try {
+      await octokit.repos.get({ owner, repo })
+    } catch (error: any) {
+      const status = error?.status
+      if (status === 404) {
+        throw new Error(
+          [
+            "未找到对应的 GitHub 仓库，请检查 Project ID",
+            `Project ID: ${this.config.projectId}`
+          ].join("\n"),
+        )
+      }
+      if (status === 401 || status === 403) {
+        throw new Error("GitHub Token 无效或无权访问该仓库")
+      }
+      throw error
+    }
+  }
+
+  private async validateGitLabProject(): Promise<void> {
+    const baseUrl = this.getGitLabBaseUrl()
+    const projectId = encodeURIComponent(this.config.projectId)
+    const res = await this.fetchWithRetry(`${baseUrl}/api/v4/projects/${projectId}`, {
+      headers: {
+        "PRIVATE-TOKEN": this.config.token,
+        Accept: "application/json"
+      }
+    })
+
+    if (res.ok) return
+
+    const body = await res.text()
+    if (res.status === 404) {
+      throw new Error(
+        [
+          "未找到对应的 GitLab 项目，请检查 Project ID",
+          `GitLab Base URL: ${baseUrl}`,
+          `Project ID: ${this.config.projectId}`,
+          body ? `GitLab 响应: ${body}` : ""
+        ]
+          .filter(Boolean)
+          .join("\n"),
+      )
+    }
+    if (res.status === 401 || res.status === 403) {
+      throw new Error("GitLab Token 无效或无权访问该项目")
+    }
+    throw new Error(`GitLab 项目校验失败 ${res.status}: ${body}`)
+  }
+
   // ── GitHub 实现细节 ──
   private async fetchGitHubDiff(base: string, head: string): Promise<DiffPayload> {
     const octokit = new Octokit({
@@ -176,41 +247,56 @@ export class DiffEngine {
       request: { fetch: globalThis.fetch } // 必须为 Service Worker 注入 fetch
     })
 
-    const [owner, repo] = this.config.projectId.split("/")
-    if (!owner || !repo) {
-      throw new Error('GitHub 项目格式应为 "owner/repo"')
-    }
+    const { owner, repo } = this.getGitHubRepoParts()
 
     let files: DiffFile[] = []
     let page = 1
     const perPage = 100
 
     // GitHub Commit Compare 接口的文件列表支持分页
-    while (true) {
-      const { data } = await octokit.repos.compareCommitsWithBasehead({
-        owner,
-        repo,
-        basehead: `${base}...${head}`,
-        per_page: perPage,
-        page
-      })
+    try {
+      while (true) {
+        const { data } = await octokit.repos.compareCommitsWithBasehead({
+          owner,
+          repo,
+          basehead: `${base}...${head}`,
+          per_page: perPage,
+          page
+        })
 
-      const pageFiles: DiffFile[] = (data.files ?? []).map((f) => ({
-        filename: f.filename,
-        status: f.status as DiffFile["status"],
-        additions: f.additions,
-        deletions: f.deletions,
-        patch: f.patch ?? "",
-        oldFilename: f.previous_filename
-      }))
+        const pageFiles: DiffFile[] = (data.files ?? []).map((f) => ({
+          filename: f.filename,
+          status: f.status as DiffFile["status"],
+          additions: f.additions,
+          deletions: f.deletions,
+          patch: f.patch ?? "",
+          oldFilename: f.previous_filename
+        }))
 
-      files.push(...pageFiles)
+        files.push(...pageFiles)
 
-      if (pageFiles.length < perPage) break
-      page++
+        if (pageFiles.length < perPage) break
+        page++
 
-      // 设置硬性安全限制：单次审查最多支持 3000 个文件，防止僵尸任务
-      if (files.length >= 3000) break
+        // 设置硬性安全限制：单次审查最多支持 3000 个文件，防止僵尸任务
+        if (files.length >= 3000) break
+      }
+    } catch (error: any) {
+      const status = error?.status
+      if (status === 404) {
+        throw new Error(
+          [
+            "未找到对应的 Commit，请检查 Hash",
+            `Project ID: ${this.config.projectId}`,
+            `Base Commit: ${base}`,
+            `Head Commit: ${head}`
+          ].join("\n"),
+        )
+      }
+      if (status === 401 || status === 403) {
+        throw new Error("GitHub Token 无效或无权访问该仓库")
+      }
+      throw error
     }
 
     const totalAdditions = files.reduce((s, f) => s + f.additions, 0)
@@ -229,7 +315,7 @@ export class DiffEngine {
 
   // ── GitLab 实现细节 ──
   private async fetchGitLabDiff(base: string, head: string): Promise<DiffPayload> {
-    const baseUrl = (this.config.gitlabBaseUrl ?? "https://gitlab.com").replace(/\/$/, "")
+    const baseUrl = this.getGitLabBaseUrl()
     const projectId = encodeURIComponent(this.config.projectId)
     const headers = {
       "PRIVATE-TOKEN": this.config.token,
@@ -250,7 +336,18 @@ export class DiffEngine {
       if (!res.ok) {
         const body = await res.text()
         if (res.status === 404) {
-          throw new Error(`未找到对应的 Commit 或项目，请检查 Hash 和 Project ID`)
+          throw new Error(
+            [
+              "未找到对应的 Commit，请检查 Hash",
+              `GitLab Base URL: ${baseUrl}`,
+              `Project ID: ${this.config.projectId}`,
+              `Base Commit: ${base}`,
+              `Head Commit: ${head}`,
+              body ? `GitLab 响应: ${body}` : ""
+            ]
+              .filter(Boolean)
+              .join("\n"),
+          )
         }
         if (res.status === 401) {
           throw new Error(`GitLab Token 无效或权限不足`)
@@ -308,4 +405,3 @@ export class DiffEngine {
     throw new Error("超过 GitLab API 最大重试次数")
   }
 }
-

@@ -79,6 +79,8 @@ export default function OptionsPage() {
       return SecurityManager.validateKeyFormat(value, "gemini");
     if (key === "claudeApiKey")
       return SecurityManager.validateKeyFormat(value, "claude");
+    if (key === "openaiApiKey")
+      return SecurityManager.validateKeyFormat(value, "openai");
     return true;
   };
 
@@ -262,6 +264,35 @@ export default function OptionsPage() {
                 </button>
               </div>
             </div>
+
+            <div className="space-y-3">
+              <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground ml-1">
+                OpenAI API Key
+              </label>
+              <div className="relative group">
+                <input
+                  type={showKeys["openai"] ? "text" : "password"}
+                  value={config.openaiApiKey ?? ""}
+                  onChange={(e) => updateConfig("openaiApiKey", e.target.value)}
+                  placeholder="sk-xxxxxxxx"
+                  className={clsx(
+                    "w-full input-field h-12 pr-12 font-mono",
+                    !validateKey("openaiApiKey", config.openaiApiKey ?? "") &&
+                      "border-destructive/50",
+                  )}
+                />
+                <button
+                  onClick={() => toggleVisibility("openai")}
+                  className="absolute right-4 top-1/2 -translate-y-1/2 p-1.5 rounded-md hover:bg-white/5 text-muted-foreground transition-colors"
+                >
+                  {showKeys["openai"] ? (
+                    <EyeOff className="w-4 h-4" />
+                  ) : (
+                    <Eye className="w-4 h-4" />
+                  )}
+                </button>
+              </div>
+            </div>
           </div>
         </section>
 
@@ -295,7 +326,7 @@ export default function OptionsPage() {
                 默认 AI 模型
               </label>
               <select
-                value={config.defaultModel ?? "gemini-2.5-flash-preview-04-17"}
+                value={config.defaultModel ?? "gemini-3.1-flash-lite-preview"}
                 onChange={(e) => updateConfig("defaultModel", e.target.value)}
                 className="w-full input-field h-12 appearance-none cursor-pointer"
               >

@@ -39,7 +39,7 @@ export interface DiffChunk {
 
 // ===================== LLM 相关类型 =====================
 
-export type ModelProvider = "gemini" | "claude";
+export type ModelProvider = "gemini" | "claude" | "openai";
 
 export type GeminiModel =
   | "gemini-3.1-flash-lite-preview"
@@ -47,7 +47,9 @@ export type GeminiModel =
 
 export type ClaudeModel = "claude-sonnet-4-6" | "claude-opus-4-6";
 
-export type ModelId = GeminiModel | ClaudeModel;
+export type OpenAIModel = "gpt-5.4";
+
+export type ModelId = GeminiModel | ClaudeModel | OpenAIModel;
 
 export interface ModelConfig {
   provider: ModelProvider;
@@ -88,6 +90,14 @@ export const MODEL_CONFIGS: Record<ModelId, ModelConfig> = {
     contextWindowTokens: 1000000,
     maxOutputTokens: 64000,
   },
+  "gpt-5.4": {
+    provider: "openai",
+    modelId: "gpt-5.4",
+    modelName: "GPT-5.4",
+    contextWindowTokens: 272000,
+    // contextWindowTokens: 1050000, // 单次超过 272k token 费用计价提高
+    maxOutputTokens: 128000,
+  },
 };
 
 // ===================== 消息通信类型 =====================
@@ -106,6 +116,7 @@ export interface ReviewRequest {
   modelId: ModelId;
   geminiApiKey: string;
   claudeApiKey: string;
+  openaiApiKey: string;
 }
 
 export interface StreamMessage {
@@ -143,6 +154,8 @@ export interface AppConfig {
   geminiApiKey: string;
   /** Anthropic API Key */
   claudeApiKey: string;
+  /** OpenAI API Key */
+  openaiApiKey: string;
   /** 默认模型 */
   defaultModel: ModelId;
   /** 默认平台 */

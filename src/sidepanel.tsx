@@ -137,6 +137,20 @@ export default function SidePanel() {
       return;
     }
 
+    const provider = MODEL_CONFIGS[modelId].provider;
+    if (provider === "gemini" && !cfg.geminiApiKey) {
+      setError("当前模型需要 Gemini API Key");
+      return;
+    }
+    if (provider === "claude" && !cfg.claudeApiKey) {
+      setError("当前模型需要 Claude API Key");
+      return;
+    }
+    if (provider === "openai" && !cfg.openaiApiKey) {
+      setError("当前模型需要 OpenAI API Key");
+      return;
+    }
+
     // 状态重置
     setError("");
     setContent("");
@@ -173,6 +187,7 @@ export default function SidePanel() {
         case "STREAM_ERROR": // 处理异常
           setError(msg.payload?.error ?? "未知错误");
           setStatus("error");
+          setProgress(null);
           portRef.current = null;
           break;
       }
@@ -199,6 +214,7 @@ export default function SidePanel() {
       modelId,
       geminiApiKey: cfg.geminiApiKey,
       claudeApiKey: cfg.claudeApiKey,
+      openaiApiKey: cfg.openaiApiKey,
     });
   }, [baseCommit, headCommit, projectId, platform, modelId, status]);
 
@@ -376,8 +392,11 @@ export default function SidePanel() {
             <button
               onClick={() => {
                 setContent("");
+                contentRef.current = "";
                 setStatus("idle");
                 setError("");
+                setProgress(null);
+                setCopied(false);
               }}
               className="px-3 bg-white/5 border border-white/5 rounded-xl text-muted-foreground hover:text-white hover:bg-white/10 transition-all active:scale-95"
               title="重置"
@@ -464,4 +483,3 @@ export default function SidePanel() {
     </div>
   );
 }
-

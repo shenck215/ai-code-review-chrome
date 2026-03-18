@@ -1,6 +1,6 @@
 # AI Git Reviewer
 
-> Gemini / Claude 驱动的 GitHub & GitLab 代码审查 Chrome 扩展（Side Panel）
+> Gemini / Claude / OpenAI 驱动的 GitHub & GitLab 代码审查 Chrome 扩展（Side Panel）
 
 ![Chrome MV3](https://img.shields.io/badge/Chrome-MV3-4285F4?logo=googlechrome&logoColor=white)
 ![Plasmo](https://img.shields.io/badge/Plasmo-0.90.5-7C3AED)
@@ -15,6 +15,7 @@
 - **多模型原生支持**：
   - **Gemini 2.0/1.5**：超长上下文支持（达 1-2M tokens）。
   - **Claude 3.5/3.7**：深度逻辑与架构建议。
+  - **OpenAI GPT-5.4**：通过官方 OpenAI SDK 的 Responses API 进行流式审查。
 - **鲁棒性增强**：针对 Claude API 的 JSON 序列化限制，内置 Unicode 清洗逻辑（`ensureWellFormed`），彻底解决 `no low surrogate` 报错。
 - **安全存储**：API Keys 存储在 `chrome.storage.local`，仅限本地，支持一键安全抹除。
 - **一键复制**：审查完成后，可快速将 Markdown 报告复制到剪切板。
@@ -25,7 +26,7 @@
 |---|---|
 | 框架 | [Plasmo](https://docs.plasmo.com/) 0.90.5 |
 | UI | React 19 + Tailwind CSS + Lucide Icons |
-| LLM | `@google/generative-ai` + `@anthropic-ai/sdk` |
+| LLM | `@google/generative-ai` + `@anthropic-ai/sdk` + `openai` |
 | Git | `@octokit/rest` + GitLab REST API |
 | 渲染 | **marked** + **DOMPurify** (高性能流式安全渲染) |
 
@@ -47,6 +48,7 @@ Side Panel ──port.connect──► Background Service Worker
                                        ├─ Unicode 清洗：避免 Claude 发包 400 错误
                                        ├─ Gemini: generateContentStream
                                        └─ Claude: messages.stream
+                                       └─ OpenAI: responses.create(stream)
                                              │
                                              └─ port.postMessage(delta) ──► Side Panel
 ```
@@ -86,7 +88,7 @@ npm run dev
 ### 3. 设置 API 密钥
 
 1. 右键扩展图标 -> **选项**
-2. 填入你的对应 Token 与 API Key。
+2. 填入你的对应 Token 与 API Key（Gemini / Claude / OpenAI 至少一个）。
 3. 扩展内置了 GitLab 自托管 URL 支持。
 
 ## Token 分片逻辑（智能上下文管理）
