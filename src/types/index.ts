@@ -47,7 +47,7 @@ export type GeminiModel =
 
 export type ClaudeModel = "claude-sonnet-4-6" | "claude-opus-4-6";
 
-export type OpenAIModel = "gpt-5.4";
+export type OpenAIModel = "gpt-5-mini" | "gpt-5.4";
 
 export type ModelId = GeminiModel | ClaudeModel | OpenAIModel;
 
@@ -89,6 +89,13 @@ export const MODEL_CONFIGS: Record<ModelId, ModelConfig> = {
     modelName: "Claude Opus 4.6",
     contextWindowTokens: 1000000,
     maxOutputTokens: 64000,
+  },
+  "gpt-5-mini": {
+    provider: "openai",
+    modelId: "gpt-5-mini",
+    modelName: "GPT-5 Mini",
+    contextWindowTokens: 272000,
+    maxOutputTokens: 128000,
   },
   "gpt-5.4": {
     provider: "openai",

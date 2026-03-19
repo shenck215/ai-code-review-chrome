@@ -1,6 +1,6 @@
 /**
  * sidepanel.tsx - 侧边栏主界面组件
- * 
+ *
  * 核心逻辑：
  * 1. 响应式表单：管理 Git 平台、Model 选择及分支 Hash 输入。
  * 2. 跨进程通信：通过 chrome.runtime.Port 与 background.ts 建立长连接，实现流式数据接收。
@@ -37,8 +37,85 @@ const PORT_NAME = "AI_REVIEW_PORT";
 
 type ReviewStatus = "idle" | "loading" | "streaming" | "done" | "error";
 
+type RepoDetection = {
+  platform: "github" | "gitlab";
+  projectId: string;
+};
+
 // 配置 marked：开启 GitHub 风格 (GFM) 并支持回车换行
 marked.setOptions({ gfm: true, breaks: true });
+
+function detectRepoFromUrl(rawUrl: string): RepoDetection | null {
+  let url: URL;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    return null;
+  }
+
+  const segments = url.pathname.split("/").filter(Boolean);
+  if (segments.length < 2) return null;
+
+  const host = url.hostname.toLowerCase();
+  const githubMarkers = new Set([
+    "pull",
+    "pulls",
+    "compare",
+    "commit",
+    "commits",
+    "tree",
+    "blob",
+    "issues",
+    "actions",
+    "releases",
+    "settings",
+  ]);
+  const gitlabMarkers = new Set([
+    "-",
+    "commit",
+    "commits",
+    "compare",
+    "merge_requests",
+    "merge-request",
+    "merge_requests",
+    "blob",
+    "tree",
+    "tags",
+    "branches",
+    "pipelines",
+  ]);
+
+  if (host === "github.com" || host.endsWith(".github.com")) {
+    return {
+      platform: "github",
+      projectId: `${segments[0]}/${segments[1]}`,
+    };
+  }
+
+  const markerIndex = segments.findIndex((segment) =>
+    gitlabMarkers.has(segment),
+  );
+  if (markerIndex >= 2) {
+    // GitLab 项目可能带多级 group/subgroup；遇到 commits、compare、-/ 等标记时，
+    // 取标记前面的所有路径段作为 projectId。
+    return {
+      platform: "gitlab",
+      projectId: segments.slice(0, markerIndex).join("/"),
+    };
+  }
+
+  const githubMarkerIndex = segments.findIndex((segment) =>
+    githubMarkers.has(segment),
+  );
+  if (githubMarkerIndex === 2) {
+    return {
+      platform: "github",
+      projectId: `${segments[0]}/${segments[1]}`,
+    };
+  }
+
+  return null;
+}
 
 export default function SidePanel() {
   // ── 1. 表单状态管理 ──
@@ -46,9 +123,7 @@ export default function SidePanel() {
   const [headCommit, setHeadCommit] = useState("");
   const [platform, setPlatform] = useState<"github" | "gitlab">("github");
   const [projectId, setProjectId] = useState("");
-  const [modelId, setModelId] = useState<ModelId>(
-    "gemini-3.1-flash-lite-preview",
-  );
+  const [modelId, setModelId] = useState<ModelId>("gpt-5-mini");
 
   // ── 2. 审查业务状态 ──
   const [status, setStatus] = useState<ReviewStatus>("idle");
@@ -79,15 +154,32 @@ export default function SidePanel() {
 
   // 初始化：从本地安全存储加载用户配置的默认值
   useEffect(() => {
-    const loadConfig = () => {
-      securityManager.getConfig().then((cfg) => {
-        setPlatform(cfg.defaultPlatform);
-        setProjectId(cfg.defaultProject);
-        setModelId(cfg.defaultModel);
-      });
+    const loadConfig = async () => {
+      const cfg = await securityManager.getConfig();
+      setPlatform(cfg.defaultPlatform);
+      setProjectId(cfg.defaultProject);
+      setModelId(cfg.defaultModel);
+
+      try {
+        const [activeTab] = await chrome.tabs.query({
+          active: true,
+          currentWindow: true,
+        });
+        // 打开侧边栏时优先读取当前仓库页面 URL，并覆盖默认项目配置。
+        const detected = activeTab?.url
+          ? detectRepoFromUrl(activeTab.url)
+          : null;
+
+        if (detected) {
+          setPlatform(detected.platform);
+          setProjectId(detected.projectId);
+        }
+      } catch (error) {
+        console.warn("读取当前标签页 URL 失败", error);
+      }
     };
 
-    loadConfig();
+    void loadConfig();
 
     // 监听 Options 页面或其他地方对配置的修改，实时同步 UI
     const listener = (changes: {
@@ -116,6 +208,7 @@ export default function SidePanel() {
   const stopReview = useCallback(() => {
     portRef.current?.disconnect();
     portRef.current = null;
+    setProgress(null);
     setStatus((prev) => (prev === "streaming" ? "done" : "idle"));
   }, []);
 
@@ -170,7 +263,8 @@ export default function SidePanel() {
           setProgress(msg.payload?.progress ?? null);
           break;
 
-        case "STREAM_DELTA": { // 流式文本片段
+        case "STREAM_DELTA": {
+          // 流式文本片段
           const delta = msg.payload?.delta ?? "";
           contentRef.current += delta;
           setContent(contentRef.current);
@@ -219,7 +313,7 @@ export default function SidePanel() {
   }, [baseCommit, headCommit, projectId, platform, modelId, status]);
 
   const openOptions = () => chrome.runtime.openOptionsPage();
-  
+
   /**
    * 复制报告到剪切板逻辑
    */
@@ -236,13 +330,13 @@ export default function SidePanel() {
   return (
     <div className="flex flex-col h-screen bg-background text-foreground overflow-hidden selection:bg-primary/30">
       {/* ── Header ── */}
-      <header className="flex items-center justify-between px-5 py-4 border-b border-border/50 glass-panel z-10">
-        <div className="flex items-center gap-3 group translate-y-[-1px]">
-          <div className="w-8 h-8 rounded-lg btn-gradient flex items-center justify-center animate-glow">
+      <header className="flex items-center justify-between px-4 py-3 border-b border-border/50 glass-panel z-10">
+        <div className="flex items-center gap-2.5 group translate-y-[-1px] min-w-0">
+          <div className="w-8 h-8 rounded-lg btn-gradient flex items-center justify-center animate-glow flex-shrink-0">
             <GitBranch className="w-4 h-4 text-white group-hover:rotate-12 transition-transform" />
           </div>
-          <div className="flex flex-col">
-            <span className="font-bold text-[15px] tracking-tight leading-none bg-gradient-to-r from-white to-white/70 bg-clip-text text-transparent">
+          <div className="flex flex-col min-w-0">
+            <span className="font-bold text-[14px] tracking-tight leading-none bg-gradient-to-r from-white to-white/70 bg-clip-text text-transparent truncate">
               AI Git Reviewer
             </span>
             <span className="text-[10px] text-muted-foreground font-mono uppercase tracking-widest mt-1">
@@ -260,7 +354,7 @@ export default function SidePanel() {
       </header>
 
       {/* ── 配置与交互区域 ── */}
-      <div className="px-5 py-5 space-y-4 bg-gradient-to-b from-card/30 to-transparent flex-shrink-0">
+      <div className="px-4 py-4 space-y-3.5 bg-gradient-to-b from-card/30 to-transparent flex-shrink-0">
         <div className="grid grid-cols-2 gap-3">
           {/* 平台选择 */}
           <div className="space-y-1.5">
@@ -351,11 +445,11 @@ export default function SidePanel() {
         </div>
 
         {/* 底部按钮组 */}
-        <div className="flex gap-2.5 pt-1">
+        <div className="flex gap-2 pt-0.5">
           <button
             onClick={isRunning ? stopReview : startReview}
             className={clsx(
-              "flex-1 btn-gradient text-white rounded-xl h-11 text-sm font-bold flex items-center justify-center gap-2",
+              "flex-1 btn-gradient text-white rounded-xl h-10.5 text-sm font-bold flex items-center justify-center gap-2",
               isRunning && "after:opacity-10 shadow-primary/30",
             )}
           >
@@ -371,7 +465,7 @@ export default function SidePanel() {
               </>
             )}
           </button>
-          
+
           {/* 复制按钮 */}
           {content && (
             <button
@@ -409,7 +503,7 @@ export default function SidePanel() {
 
       {/* ── 实时进度条 ── */}
       {(status === "loading" || progress) && (
-        <div className="mx-5 mb-4 p-3 rounded-xl bg-primary/5 border border-primary/20 flex items-center gap-3 animate-fade-in animate-float shadow-inner shadow-primary/5">
+        <div className="mx-4 mb-3 p-3 rounded-xl bg-primary/5 border border-primary/20 flex items-center gap-3 animate-fade-in animate-float shadow-inner shadow-primary/5">
           <div className="relative">
             <Loader2 className="w-4 h-4 text-primary animate-spin" />
             <div className="absolute inset-0 bg-primary/20 blur-md rounded-full animate-pulse" />
@@ -422,7 +516,7 @@ export default function SidePanel() {
 
       {/* ── ERROR 区域 ── */}
       {error && (
-        <div className="mx-5 mb-4 p-4 bg-destructive/10 border border-destructive/20 rounded-xl flex items-start gap-3 animate-fade-in">
+        <div className="mx-4 mb-3 p-3.5 bg-destructive/10 border border-destructive/20 rounded-xl flex items-start gap-3 animate-fade-in">
           <AlertCircle className="w-5 h-5 text-destructive mt-0.5" />
           <div className="flex flex-col gap-0.5">
             <span className="text-xs font-bold text-destructive uppercase tracking-widest">
@@ -436,7 +530,7 @@ export default function SidePanel() {
       )}
 
       {/* ── 主渲染区域 (Markdown View) ── */}
-      <div className="flex-1 overflow-y-auto px-5 py-2 scroll-smooth">
+      <div className="flex-1 overflow-y-auto px-4 py-2 scroll-smooth">
         {/* 空状态看板 */}
         {status === "idle" && !content && (
           <div className="h-full flex flex-col items-center justify-center text-center pb-20 animate-fade-in">
@@ -458,7 +552,7 @@ export default function SidePanel() {
         {content && (
           <div
             className={clsx(
-              "markdown-body animate-fade-in",
+              "markdown-body markdown-wide animate-fade-in",
               status === "streaming" && "streaming-cursor",
             )}
             dangerouslySetInnerHTML={{ __html: htmlContent }}

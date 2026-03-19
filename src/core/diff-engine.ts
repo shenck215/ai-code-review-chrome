@@ -156,9 +156,11 @@ export class DiffEngine {
     this.validateCommitHash(headCommit)
 
     if (this.config.platform === "github") {
+      // 先做仓库存在性校验，把“项目错了”和“commit 错了”拆成两类报错。
       await this.validateGitHubProject()
       return this.fetchGitHubDiff(baseCommit, headCommit)
     } else {
+      // GitLab 私有项目经常在无权限时返回 404，预检查能给出更明确的提示。
       await this.validateGitLabProject()
       return this.fetchGitLabDiff(baseCommit, headCommit)
     }
@@ -212,6 +214,7 @@ export class DiffEngine {
   private async validateGitLabProject(): Promise<void> {
     const baseUrl = this.getGitLabBaseUrl()
     const projectId = encodeURIComponent(this.config.projectId)
+    // 预检查项目本身是否可见，避免 compare 接口把项目错误和 commit 错误混在一起。
     const res = await this.fetchWithRetry(`${baseUrl}/api/v4/projects/${projectId}`, {
       headers: {
         "PRIVATE-TOKEN": this.config.token,

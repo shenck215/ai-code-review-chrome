@@ -17,6 +17,11 @@ import { DiffBuffer } from "./diff-engine";
 export type StreamCallback = (delta: string) => void;
 export type ProgressCallback = (msg: string) => void;
 
+type PromptBundle = {
+  systemPrompt: string;
+  userPrompt: string;
+};
+
 /**
  * 确保字符串符合 Unicode 规范，移除无效的代理项（Unpaired Surrogates）。
  *
@@ -53,7 +58,8 @@ const SYSTEM_PROMPT = `你是一位世界级的代码审查专家，有着深厚
 ## 💡 改进建议
 - 具体的重构或优化方案，附带代码示例
 
-输出格式：Markdown，代码片段使用对应语言的 fence 块。`;
+输出格式：Markdown，代码片段使用对应语言的 fence 块。
+必须保留以上标题中的 emoji 和标题名称，不得省略、替换或改写成纯文本标题。`;
 
 /**
  * 中间摘要提示：用于长 Diff 分片处理
@@ -67,6 +73,15 @@ const CHUNK_SUMMARY_PROMPT = (index: number, total: number) =>
  */
 const FINAL_SUMMARY_PROMPT = `以下是各批次 Diff 的中间摘要，请综合所有内容，
 输出一份完整、深入的代码审查报告（格式同系统提示）。`;
+
+function buildPromptBundle(prompt: string): PromptBundle {
+  // 先统一抽象出 system/user 两段语义，再由各 provider 映射到各自 SDK。
+  // 这样结构统一，但不会为了表面一致破坏原生参数设计。
+  return {
+    systemPrompt: SYSTEM_PROMPT,
+    userPrompt: prompt,
+  };
+}
 
 /**
  * 将 Diff 对象格式化为便于 LLM 理解的提示文本
@@ -88,16 +103,16 @@ function formatDiffForPrompt(payload: DiffPayload | DiffChunk): string {
 async function streamGemini(
   apiKey: string,
   modelId: string,
-  prompt: string,
+  promptBundle: PromptBundle,
   onDelta: StreamCallback,
 ): Promise<string> {
   const genAI = new GoogleGenerativeAI(apiKey);
   const model = genAI.getGenerativeModel({
     model: modelId,
-    systemInstruction: SYSTEM_PROMPT,
+    systemInstruction: promptBundle.systemPrompt,
   });
 
-  const result = await model.generateContentStream(prompt);
+  const result = await model.generateContentStream(promptBundle.userPrompt);
   let full = "";
 
   for await (const chunk of result.stream) {
@@ -118,7 +133,7 @@ async function streamGemini(
 async function streamClaude(
   apiKey: string,
   modelId: string,
-  prompt: string,
+  promptBundle: PromptBundle,
   onDelta: StreamCallback,
 ): Promise<string> {
   const client = new Anthropic({
@@ -130,8 +145,10 @@ async function streamClaude(
   const stream = await client.messages.stream({
     model: modelId,
     max_tokens: cfg.maxOutputTokens,
-    system: ensureWellFormed(SYSTEM_PROMPT), // 清洗系统提示
-    messages: [{ role: "user", content: ensureWellFormed(prompt) }], // 清洗用户输入
+    system: ensureWellFormed(promptBundle.systemPrompt), // 清洗系统提示
+    messages: [
+      { role: "user", content: ensureWellFormed(promptBundle.userPrompt) },
+    ], // 清洗用户输入
   });
 
   let full = "";
@@ -150,39 +167,67 @@ async function streamClaude(
 /**
  * OpenAI 流式客户端封装
  * 使用官方 openai SDK 的 Responses API
+ *
+ * 注意：
+ * OpenAI 这条链路目前不走 `instructions` 字段，而是将 system prompt 与
+ * user prompt 合并进 input。原因是浏览器扩展场景下，传入 instructions
+ * 曾稳定触发 500；保留语义、避开故障路径比强行统一参数更重要。
  */
 async function streamOpenAI(
   apiKey: string,
   modelId: string,
-  prompt: string,
+  promptBundle: PromptBundle,
   onDelta: StreamCallback,
 ): Promise<string> {
   const cfg = MODEL_CONFIGS[modelId as ModelId];
   const client = new OpenAI({
     apiKey,
     dangerouslyAllowBrowser: true,
+    maxRetries: 5,
   });
+  debugger;
+  try {
+    const stream = await client.responses.create({
+      model: modelId,
+      input: `${promptBundle.systemPrompt}\n\n${promptBundle.userPrompt}`,
+      max_output_tokens: cfg.maxOutputTokens,
+      stream: true,
+      reasoning: {
+        effort: "medium",
+      },
+    });
 
-  const stream = await client.responses.create({
-    model: modelId,
-    instructions: SYSTEM_PROMPT,
-    input: prompt,
-    max_output_tokens: cfg.maxOutputTokens,
-    stream: true,
-    reasoning: {
-      effort: "medium",
-    },
-  });
-
-  let full = "";
-  for await (const event of stream) {
-    if (event.type === "response.output_text.delta") {
-      onDelta(event.delta);
-      full += event.delta;
+    let full = "";
+    try {
+      for await (const event of stream) {
+        if (event.type === "response.output_text.delta") {
+          onDelta(event.delta);
+          full += event.delta;
+        }
+      }
+    } catch (streamError: any) {
+      // 某些情况下 OpenAI 会在已经产出正文后，于流收尾阶段返回 5xx。
+      // 这时比起把整次审查判成失败，更合理的行为是保留已生成内容。
+      if (full.trim()) {
+        return full;
+      }
+      throw streamError;
     }
-  }
 
-  return full;
+    return full;
+  } catch (error: any) {
+    const requestId = error?.requestID;
+    const message =
+      typeof error?.message === "string" ? error.message : "未知 OpenAI 错误";
+
+    if (requestId) {
+      throw new Error(
+        `OpenAI 服务暂时异常，请重试。\n${message}\nrequest_id: ${requestId}`,
+      );
+    }
+
+    throw new Error(`OpenAI 服务暂时异常，请重试。\n${message}`);
+  }
 }
 
 /**
@@ -197,13 +242,14 @@ async function streamReview(
   onDelta: StreamCallback,
 ): Promise<string> {
   const cfg = MODEL_CONFIGS[modelId];
+  const promptBundle = buildPromptBundle(prompt);
   if (cfg.provider === "gemini") {
-    return streamGemini(geminiApiKey, modelId, prompt, onDelta);
+    return streamGemini(geminiApiKey, modelId, promptBundle, onDelta);
   }
   if (cfg.provider === "claude") {
-    return streamClaude(claudeApiKey, modelId, prompt, onDelta);
+    return streamClaude(claudeApiKey, modelId, promptBundle, onDelta);
   }
-  return streamOpenAI(openaiApiKey, modelId, prompt, onDelta);
+  return streamOpenAI(openaiApiKey, modelId, promptBundle, onDelta);
 }
 
 /**

@@ -13,7 +13,7 @@ const DEFAULT_CONFIG: AppConfig = {
   geminiApiKey: "",
   claudeApiKey: "",
   openaiApiKey: "",
-  defaultModel: "gemini-3.1-flash-lite-preview",
+  defaultModel: "gpt-5-mini",
   defaultPlatform: "github",
   defaultProject: "",
 };
@@ -33,7 +33,10 @@ export class SecurityManager {
     // 监听存储变化，自动同步缓存
     storage.watch({
       [CONFIG_KEY]: (c) => {
-        this.cache = { ...DEFAULT_CONFIG, ...((c.newValue as AppConfig) ?? {}) };
+        this.cache = {
+          ...DEFAULT_CONFIG,
+          ...((c.newValue as AppConfig) ?? {}),
+        };
       },
     });
   }
