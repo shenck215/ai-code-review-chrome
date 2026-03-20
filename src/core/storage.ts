@@ -1,26 +1,41 @@
 import { Storage } from "@plasmohq/storage";
 import type { AppConfig, PartialAppConfig } from "~types";
 
-// 所有敏感 key 使用 chrome.storage.local（不同步到云端）
-const storage = new Storage({ area: "local" });
+// 非敏感配置持久化到 local；敏感凭证仅保存在当前浏览器会话，降低审核风险。
+const localStorage = new Storage({ area: "local" });
+const sessionStorage = new Storage({ area: "session" });
 
-const CONFIG_KEY = "app_config";
+const PUBLIC_CONFIG_KEY = "app_config_public";
+const SECRET_CONFIG_KEY = "app_config_secret";
+
+const SENSITIVE_KEYS = [
+  "githubToken",
+  "gitlabToken",
+  "geminiApiKey",
+  "claudeApiKey",
+  "openaiApiKey",
+] as const satisfies ReadonlyArray<keyof AppConfig>;
+
+type SensitiveKey = (typeof SENSITIVE_KEYS)[number];
+type SensitiveConfig = Pick<AppConfig, SensitiveKey>;
+type PublicConfig = Omit<AppConfig, SensitiveKey>;
 
 const DEFAULT_CONFIG: AppConfig = {
   githubToken: "",
   gitlabToken: "",
-  gitlabBaseUrl: "https://gitlab.com",
+  gitlabBaseUrl: "",
+  lastDetectedGitlabBaseUrl: "",
   geminiApiKey: "",
   claudeApiKey: "",
   openaiApiKey: "",
   defaultModel: "gpt-5-mini",
   defaultPlatform: "github",
   defaultProject: "",
+  reviewDataConsentAccepted: false,
 };
 
 export class SecurityManager {
   private static instance: SecurityManager;
-  private cache: AppConfig | null = null;
 
   static getInstance(): SecurityManager {
     if (!SecurityManager.instance) {
@@ -29,31 +44,55 @@ export class SecurityManager {
     return SecurityManager.instance;
   }
 
-  private constructor() {
-    // 监听存储变化，自动同步缓存
-    storage.watch({
-      [CONFIG_KEY]: (c) => {
-        this.cache = {
-          ...DEFAULT_CONFIG,
-          ...((c.newValue as AppConfig) ?? {}),
-        };
-      },
-    });
+  private constructor() {}
+
+  private splitConfig(patch: PartialAppConfig): {
+    publicPatch: Partial<PublicConfig>;
+    secretPatch: Partial<SensitiveConfig>;
+  } {
+    const publicPatch: Record<string, unknown> = {};
+    const secretPatch: Record<string, unknown> = {};
+
+    for (const [key, value] of Object.entries(patch) as Array<
+      [keyof AppConfig, AppConfig[keyof AppConfig]]
+    >) {
+      if (SENSITIVE_KEYS.includes(key as SensitiveKey)) {
+        secretPatch[key] = value;
+      } else {
+        publicPatch[key] = value;
+      }
+    }
+
+    return {
+      publicPatch: publicPatch as Partial<PublicConfig>,
+      secretPatch: secretPatch as Partial<SensitiveConfig>,
+    };
   }
 
   /** 读取完整配置 */
   async getConfig(): Promise<AppConfig> {
-    const stored = await storage.get<AppConfig>(CONFIG_KEY);
-    this.cache = { ...DEFAULT_CONFIG, ...(stored ?? this.cache ?? {}) };
-    return this.cache;
+    const [publicConfig, secretConfig] = await Promise.all([
+      localStorage.get<Partial<PublicConfig>>(PUBLIC_CONFIG_KEY),
+      sessionStorage.get<Partial<SensitiveConfig>>(SECRET_CONFIG_KEY),
+    ]);
+
+    return {
+      ...DEFAULT_CONFIG,
+      ...(publicConfig ?? {}),
+      ...(secretConfig ?? {}),
+    };
   }
 
   /** 更新部分配置 */
   async updateConfig(patch: PartialAppConfig): Promise<void> {
     const current = await this.getConfig();
     const updated = { ...current, ...patch };
-    this.cache = updated;
-    await storage.set(CONFIG_KEY, updated);
+    const { publicPatch, secretPatch } = this.splitConfig(updated);
+
+    await Promise.all([
+      localStorage.set(PUBLIC_CONFIG_KEY, publicPatch),
+      sessionStorage.set(SECRET_CONFIG_KEY, secretPatch),
+    ]);
   }
 
   /** 读取单个配置项 */
@@ -64,11 +103,13 @@ export class SecurityManager {
 
   /**
    * 🔴 一键抹除所有敏感数据
-   * 清空 chrome.storage.local 中的所有内容
+   * 清空 local/session 中的扩展配置
    */
   async nukeSensitiveData(): Promise<void> {
-    await chrome.storage.local.clear();
-    this.cache = null;
+    await Promise.all([
+      localStorage.remove(PUBLIC_CONFIG_KEY),
+      sessionStorage.remove(SECRET_CONFIG_KEY),
+    ]);
   }
 
   /** 验证配置是否完整（指定平台所需的 key 是否已填写） */

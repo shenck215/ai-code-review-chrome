@@ -185,7 +185,6 @@ async function streamOpenAI(
     dangerouslyAllowBrowser: true,
     maxRetries: 5,
   });
-  debugger;
   try {
     const stream = await client.responses.create({
       model: modelId,

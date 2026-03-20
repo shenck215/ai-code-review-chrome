@@ -10,7 +10,7 @@
 ## 功能概览
 
 - **多平台 Diff**：支持 GitHub（Octokit）与 GitLab（REST API）两个 Commit Hash 之间的 Diff 获取。
-- **仓库地址自动识别**：打开 Side Panel 时，会优先从当前标签页 URL 自动提取 GitHub `owner/repo` 或 GitLab `group/subgroup/project`。
+- **仓库地址自动识别**：打开 Side Panel 时，会优先从当前标签页 URL 自动提取 GitHub `owner/repo` 或 GitLab `group/subgroup/project`；自托管 GitLab 会同时带出当前页面域名作为 API 根地址。
 - **Token 感知分片**：`DiffBuffer` 自动检测 Diff 是否超出模型上下文窗口，超限时按文件粒度拆分（单文件超限再按 Hunk 块拆分），各分片先生成摘要，最后汇总出完整审查报告。
 - **实时流式输出**：Background Service Worker 通过 `chrome.runtime.Port` 长连接将 LLM delta 实时推送至 Side Panel，逐字展示。
 - **多模型原生支持**：
@@ -21,7 +21,7 @@
 - **鲁棒性增强**：
   - 针对 Claude API 的 JSON 序列化限制，内置 Unicode 清洗逻辑（`ensureWellFormed`），解决 `no low surrogate` 报错。
   - OpenAI 路径不使用 `instructions` 字段，而是将 system prompt 合并进 `input`，规避扩展场景下的 500 问题。
-- **安全存储**：API Keys 存储在 `chrome.storage.local`，仅限本地，支持一键安全抹除。
+- **会话级凭证存储**：API Keys 仅保存在当前浏览器会话中；默认偏好等非敏感配置保存在本地扩展存储。
 - **一键复制**：审查完成后，可快速将 Markdown 报告复制到剪切板。
 
 ## 技术栈
@@ -99,8 +99,10 @@ npm run dev
 
 1. 右键扩展图标 -> **选项**
 2. 填入你的对应 Token 与 API Key（Gemini / Claude / OpenAI 至少一个）。
-3. 如使用 GitLab 自托管，填写实例根地址（例如 `https://git.joyobpo.net`）。
-4. 打开任意 GitHub / GitLab 仓库页面后再展开 Side Panel，项目路径会优先自动识别。
+3. 如使用 GitLab 自托管，可填写实例根地址（例如 `https://git.joyobpo.net`）；如果你是在对应 GitLab 仓库页面里打开 Side Panel，也可以留空，扩展会优先自动识别当前域名。
+4. 首次执行审查前，需要在侧边栏确认数据传输说明。
+5. 使用 GitLab 时，扩展会在首次访问当前 GitLab 域名时请求一次运行时站点权限，不会把某个固定 GitLab 域名写成必需权限。
+6. 打开任意 GitHub / GitLab 仓库页面后再展开 Side Panel，项目路径会优先自动识别。
 
 ## 仓库自动识别
 

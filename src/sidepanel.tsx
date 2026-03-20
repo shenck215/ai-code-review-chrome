@@ -40,6 +40,7 @@ type ReviewStatus = "idle" | "loading" | "streaming" | "done" | "error";
 type RepoDetection = {
   platform: "github" | "gitlab";
   projectId: string;
+  gitlabBaseUrl?: string;
 };
 
 // 配置 marked：开启 GitHub 风格 (GFM) 并支持回车换行
@@ -101,6 +102,7 @@ function detectRepoFromUrl(rawUrl: string): RepoDetection | null {
     return {
       platform: "gitlab",
       projectId: segments.slice(0, markerIndex).join("/"),
+      gitlabBaseUrl: url.origin,
     };
   }
 
@@ -117,6 +119,14 @@ function detectRepoFromUrl(rawUrl: string): RepoDetection | null {
   return null;
 }
 
+function toOriginPattern(rawUrl: string): string | null {
+  try {
+    return `${new URL(rawUrl).origin}/*`;
+  } catch {
+    return null;
+  }
+}
+
 export default function SidePanel() {
   // ── 1. 表单状态管理 ──
   const [baseCommit, setBaseCommit] = useState("");
@@ -124,6 +134,9 @@ export default function SidePanel() {
   const [platform, setPlatform] = useState<"github" | "gitlab">("github");
   const [projectId, setProjectId] = useState("");
   const [modelId, setModelId] = useState<ModelId>("gpt-5-mini");
+  const [reviewDataConsentAccepted, setReviewDataConsentAccepted] =
+    useState(false);
+  const [detectedGitlabBaseUrl, setDetectedGitlabBaseUrl] = useState("");
 
   // ── 2. 审查业务状态 ──
   const [status, setStatus] = useState<ReviewStatus>("idle");
@@ -159,6 +172,7 @@ export default function SidePanel() {
       setPlatform(cfg.defaultPlatform);
       setProjectId(cfg.defaultProject);
       setModelId(cfg.defaultModel);
+      setReviewDataConsentAccepted(cfg.reviewDataConsentAccepted);
 
       try {
         const [activeTab] = await chrome.tabs.query({
@@ -173,6 +187,19 @@ export default function SidePanel() {
         if (detected) {
           setPlatform(detected.platform);
           setProjectId(detected.projectId);
+          setDetectedGitlabBaseUrl(detected.gitlabBaseUrl ?? "");
+
+          if (
+            detected.platform === "gitlab" &&
+            detected.gitlabBaseUrl &&
+            detected.gitlabBaseUrl !== cfg.lastDetectedGitlabBaseUrl
+          ) {
+            await securityManager.updateConfig({
+              lastDetectedGitlabBaseUrl: detected.gitlabBaseUrl,
+            });
+          }
+        } else {
+          setDetectedGitlabBaseUrl("");
         }
       } catch (error) {
         console.warn("读取当前标签页 URL 失败", error);
@@ -182,16 +209,12 @@ export default function SidePanel() {
     void loadConfig();
 
     // 监听 Options 页面或其他地方对配置的修改，实时同步 UI
-    const listener = (changes: {
-      [key: string]: chrome.storage.StorageChange;
-    }) => {
-      if (changes["app_config"]) {
-        loadConfig();
-      }
+    const listener = () => {
+      void loadConfig();
     };
 
-    chrome.storage.local.onChanged.addListener(listener);
-    return () => chrome.storage.local.onChanged.removeListener(listener);
+    chrome.storage.onChanged.addListener(listener);
+    return () => chrome.storage.onChanged.removeListener(listener);
   }, []);
 
   // 交互逻辑：流式输出时自动滚动到底部，提升阅读体验
@@ -224,6 +247,17 @@ export default function SidePanel() {
 
     // 配置校验
     const cfg = await securityManager.getConfig();
+    const effectiveGitlabBaseUrl =
+      detectedGitlabBaseUrl ||
+      cfg.gitlabBaseUrl?.trim() ||
+      cfg.lastDetectedGitlabBaseUrl?.trim() ||
+      "https://gitlab.com";
+
+    if (!cfg.reviewDataConsentAccepted) {
+      setError("请先确认数据传输说明，再开始审查");
+      return;
+    }
+
     const { valid, missing } = await securityManager.validateConfig(platform);
     if (!valid) {
       setError(`配置不完整，缺少：${missing.join(" & ")}`);
@@ -242,6 +276,29 @@ export default function SidePanel() {
     if (provider === "openai" && !cfg.openaiApiKey) {
       setError("当前模型需要 OpenAI API Key");
       return;
+    }
+
+    if (platform === "gitlab") {
+      const originPattern = toOriginPattern(effectiveGitlabBaseUrl);
+      if (!originPattern) {
+        setError("GitLab Base URL 无效，请检查配置");
+        return;
+      }
+
+      const alreadyGranted = await chrome.permissions.contains({
+        origins: [originPattern],
+      });
+
+      const granted =
+        alreadyGranted ||
+        (await chrome.permissions.request({
+          origins: [originPattern],
+        }));
+
+      if (!granted) {
+        setError("需要先授予该 GitLab 域名的访问权限，才能拉取 Diff");
+        return;
+      }
     }
 
     // 状态重置
@@ -303,16 +360,30 @@ export default function SidePanel() {
         platform,
         token: platform === "github" ? cfg.githubToken : cfg.gitlabToken,
         projectId: projectId.trim(),
-        gitlabBaseUrl: cfg.gitlabBaseUrl,
+        gitlabBaseUrl: effectiveGitlabBaseUrl,
       },
       modelId,
       geminiApiKey: cfg.geminiApiKey,
       claudeApiKey: cfg.claudeApiKey,
       openaiApiKey: cfg.openaiApiKey,
     });
-  }, [baseCommit, headCommit, projectId, platform, modelId, status]);
+  }, [
+    baseCommit,
+    headCommit,
+    projectId,
+    platform,
+    modelId,
+    status,
+    detectedGitlabBaseUrl,
+  ]);
 
   const openOptions = () => chrome.runtime.openOptionsPage();
+
+  const acceptReviewDisclosure = useCallback(async () => {
+    await securityManager.updateConfig({ reviewDataConsentAccepted: true });
+    setReviewDataConsentAccepted(true);
+    setError("");
+  }, []);
 
   /**
    * 复制报告到剪切板逻辑
@@ -444,6 +515,24 @@ export default function SidePanel() {
           </div>
         </div>
 
+        {!reviewDataConsentAccepted && (
+          <div className="rounded-xl border border-amber-500/20 bg-amber-500/8 px-3.5 py-3 text-[12px] leading-relaxed text-amber-100/88">
+            <p className="font-semibold tracking-tight text-amber-100">
+              数据传输说明
+            </p>
+            <p className="mt-1">
+              执行审查时，扩展会读取当前仓库的 Diff，并将相关代码变更发送到你选择的
+              Git 平台 API 与 AI 服务商 API。请勿提交你无权外发的敏感代码、密钥或个人数据。
+            </p>
+            <button
+              onClick={acceptReviewDisclosure}
+              className="mt-3 inline-flex h-9 items-center justify-center rounded-lg bg-amber-400/15 px-3.5 text-[12px] font-semibold text-amber-50 transition-colors hover:bg-amber-400/25"
+            >
+              我已了解并同意
+            </button>
+          </div>
+        )}
+
         {/* 底部按钮组 */}
         <div className="flex gap-2 pt-0.5">
           <button
@@ -499,6 +588,12 @@ export default function SidePanel() {
             </button>
           )}
         </div>
+
+        {reviewDataConsentAccepted && (
+          <p className="text-[11px] leading-relaxed text-muted-foreground/70">
+            执行审查即表示会将当前 Diff 发送到所选 Git 平台与 AI 服务商进行处理。
+          </p>
+        )}
       </div>
 
       {/* ── 实时进度条 ── */}

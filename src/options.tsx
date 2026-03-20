@@ -33,7 +33,12 @@ export default function OptionsPage() {
   } | null>(null);
 
   useEffect(() => {
-    securityManager.getConfig().then(setConfig);
+    securityManager.getConfig().then((cfg) => {
+      setConfig({
+        ...cfg,
+        gitlabBaseUrl: cfg.gitlabBaseUrl || cfg.lastDetectedGitlabBaseUrl,
+      });
+    });
   }, []);
 
   const updateConfig = (key: keyof AppConfig, value: string) => {
@@ -50,7 +55,10 @@ export default function OptionsPage() {
 
     try {
       await securityManager.updateConfig(config);
-      setMessage({ text: "配置已安全同步至本地存储", type: "success" });
+      setMessage({
+        text: "配置已更新，敏感凭证仅保存在当前浏览器会话",
+        type: "success",
+      });
     } catch (err) {
       setMessage({ text: "保存失败，请检查填写内容", type: "error" });
     } finally {
@@ -61,11 +69,13 @@ export default function OptionsPage() {
 
   const handleNuke = async () => {
     if (
-      confirm("🚨 警告：此操作将永久抹除所有 API 密钥和本地配置。确定继续吗？")
+      confirm(
+        "警告：此操作将清空当前浏览器中的 API 密钥和本地配置。确定继续吗？",
+      )
     ) {
       await securityManager.nukeSensitiveData();
       setConfig({});
-      alert("所有敏感数据已物理抹除。");
+      alert("当前浏览器中的扩展配置已清空。");
     }
   };
 
@@ -97,8 +107,8 @@ export default function OptionsPage() {
               控制中心
             </h1>
             <p className="text-muted-foreground text-sm mt-2 max-w-md mx-auto leading-relaxed">
-              在此配置您的访问令牌和 AI
-              模型设置。所有敏感数据均通过硬件级本地存储管理，永不触网。
+              在此配置访问令牌与 AI 模型。敏感凭证仅保存在当前浏览器会话中；
+              执行审查时，相关 Diff 会发送到你选择的 Git 平台与 AI 服务商 API。
             </p>
           </div>
         </div>
@@ -120,7 +130,7 @@ export default function OptionsPage() {
                 </label>
                 <div className="flex items-center gap-1.5 text-[10px] text-primary font-mono bg-primary/10 px-2 py-0.5 rounded-full">
                   <ShieldCheck className="w-3 h-3" />
-                  ENCRYPTED
+                  SESSION ONLY
                 </div>
               </div>
               <div className="relative group">
@@ -189,9 +199,24 @@ export default function OptionsPage() {
                   onChange={(e) =>
                     updateConfig("gitlabBaseUrl", e.target.value)
                   }
-                  placeholder="https://gitlab.com"
+                  placeholder="留空自动识别"
                   className="w-full input-field h-12 font-mono tracking-tight"
                 />
+                <p className="text-xs leading-relaxed text-muted-foreground/80">
+                  打开 GitLab 仓库页面时会优先使用当前页面域名；只有未识别到
+                  GitLab 页面时，才会使用这里填写的地址，最后回退到
+                  <span className="font-mono"> https://gitlab.com</span>。首次访问任意
+                  GitLab 域名时，扩展会按该域名单独请求一次权限。
+                </p>
+                {!config.gitlabBaseUrl && config.lastDetectedGitlabBaseUrl && (
+                  <p className="text-xs leading-relaxed text-emerald-300/90">
+                    最近识别到的 GitLab 地址：
+                    <span className="font-mono">
+                      {" "}
+                      {config.lastDetectedGitlabBaseUrl}
+                    </span>
+                  </p>
+                )}
               </div>
             </div>
           </div>
@@ -360,7 +385,7 @@ export default function OptionsPage() {
             className="w-full sm:w-auto px-6 h-14 bg-destructive/10 border border-destructive/20 hover:bg-destructive text-destructive hover:text-white rounded-2xl font-bold transition-all flex items-center justify-center gap-2 group"
           >
             <Trash2 className="w-5 h-5 group-hover:rotate-12 transition-transform" />
-            一键物理抹除
+            清空本地配置
           </button>
 
           {message && (

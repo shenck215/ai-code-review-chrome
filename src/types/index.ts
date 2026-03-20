@@ -7,7 +7,7 @@ export interface GitConfig {
   token: string;
   /** GitHub: "owner/repo"，GitLab: projectId (数字或 encoded path) */
   projectId: string;
-  /** GitLab 自托管实例 URL，默认 https://gitlab.com */
+  /** GitLab 实例根地址；可留空，运行时优先从当前 GitLab 页面自动识别，最后才回退到 https://gitlab.com */
   gitlabBaseUrl?: string;
 }
 
@@ -157,6 +157,8 @@ export interface AppConfig {
   gitlabToken: string;
   /** GitLab 自托管 URL */
   gitlabBaseUrl: string;
+  /** 最近一次从 GitLab 仓库页自动识别到的实例根地址 */
+  lastDetectedGitlabBaseUrl: string;
   /** Gemini API Key */
   geminiApiKey: string;
   /** Anthropic API Key */
@@ -169,6 +171,8 @@ export interface AppConfig {
   defaultPlatform: GitPlatform;
   /** 默认项目 */
   defaultProject: string;
+  /** 用户已确认代码会被发送到所选 AI/Git 服务商 */
+  reviewDataConsentAccepted: boolean;
 }
 
 export type PartialAppConfig = Partial<AppConfig>;

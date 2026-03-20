@@ -42,12 +42,16 @@
   "manifest": {
     "host_permissions": [
       "https://api.github.com/*",
+      "https://api.openai.com/*",
+      "https://api.anthropic.com/*",
+      "https://generativelanguage.googleapis.com/*"
+    ],
+    "optional_host_permissions": [
       "https://*/*"
     ],
     "permissions": [
       "storage",
       "sidePanel",
-      "tabs",
       "activeTab"
     ]
   }
