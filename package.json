@@ -2,7 +2,7 @@
   "name": "ai-git-reviewer",
   "displayName": "AI Git Reviewer",
   "version": "0.1.0",
-  "description": "Gemini/Claude 驱动的 GitHub/GitLab 代码审查 Chrome 扩展",
+  "description": "Gemini/Claude/OpenAI 驱动的 GitHub/GitLab 代码审查 Chrome 扩展",
   "private": true,
   "scripts": {
     "dev": "plasmo dev",
